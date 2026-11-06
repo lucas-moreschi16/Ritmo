@@ -1,4 +1,5 @@
-name: RITMO - Compilar APK (corrigido)
+
+name: RITMO - Compilar APK Android
 
 on:
   workflow_dispatch:
@@ -11,11 +12,11 @@ permissions:
 
 jobs:
   build:
-    name: Gerar APK debug
+    name: Gerar APK Debug
     runs-on: ubuntu-latest
 
     steps:
-      - name: Baixar o projeto
+      - name: Baixar projeto
         uses: actions/checkout@v4
 
       - name: Configurar Java 17
@@ -29,31 +30,37 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Verificar projeto e Android SDK
+      - name: Verificar arquivos do projeto
         shell: bash
         run: |
-          test -f settings.gradle.kts || { echo 'ERRO: settings.gradle.kts não está na raiz'; exit 1; }
-          test -f app/build.gradle.kts || { echo 'ERRO: app/build.gradle.kts não encontrado'; exit 1; }
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          command -v sdkmanager
-          sdkmanager --version
+          set -euo pipefail
+          test -f settings.gradle.kts || { echo 'ERRO: settings.gradle.kts ausente'; exit 1; }
+          test -f build.gradle.kts || { echo 'ERRO: build.gradle.kts ausente'; exit 1; }
+          test -f app/build.gradle.kts || { echo 'ERRO: app/build.gradle.kts ausente'; exit 1; }
+          test -f app/src/main/AndroidManifest.xml || { echo 'ERRO: AndroidManifest.xml ausente'; exit 1; }
+          echo 'Estrutura do projeto OK.'
 
-      - name: Instalar Android SDK 35
+      - name: Preparar Android SDK
         shell: bash
         run: |
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Compilar APK
-        shell: bash
-        run: |
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            ./gradlew --no-daemon --stacktrace :app:assembleDebug
-          else
-            gradle --no-daemon --stacktrace :app:assembleDebug
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f -print -quit 2>/dev/null || true)"
           fi
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo 'ERRO: sdkmanager nao encontrado.'
+            exit 1
+          fi
+          echo "Android SDK: $SDK_ROOT"
+          "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
 
-      - name: Disponibilizar APK para download
+      - name: Compilar APK debug
+        shell: bash
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Publicar APK para download
         uses: actions/upload-artifact@v4
         with:
           name: RITMO-Android-debug
