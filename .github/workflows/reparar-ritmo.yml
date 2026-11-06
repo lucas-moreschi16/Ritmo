@@ -1,0 +1,87 @@
+name: RITMO - Reparar projeto e gerar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reparar-ritmo.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reparar-e-compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Corrigir a estrutura do Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/java/br/com/ritmo/nativo
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/values
+
+          if [ ! -f app/build.gradle.kts ] && [ -f 'build.gradle (1).kts' ]; then
+            git mv build.gradle.kts app/build.gradle.kts
+            git mv 'build.gradle (1).kts' build.gradle.kts
+          fi
+
+          for file in MainActivity.kt RitmoDb.kt HealthSync.kt ExternalImport.kt PermissionsRationaleActivity.kt; do
+            if [ -f "$file" ] && [ ! -f "app/src/main/java/br/com/ritmo/nativo/$file" ]; then
+              git mv "$file" "app/src/main/java/br/com/ritmo/nativo/$file"
+            fi
+          done
+
+          if [ -f AndroidManifest.xml ] && [ ! -f app/src/main/AndroidManifest.xml ]; then
+            git mv AndroidManifest.xml app/src/main/AndroidManifest.xml
+          fi
+          if [ -f ic_ritmo.xml ] && [ ! -f app/src/main/res/drawable/ic_ritmo.xml ]; then
+            git mv ic_ritmo.xml app/src/main/res/drawable/ic_ritmo.xml
+          fi
+          if [ -f strings.xml ] && [ ! -f app/src/main/res/values/strings.xml ]; then
+            git mv strings.xml app/src/main/res/values/strings.xml
+          fi
+
+          test -f settings.gradle.kts
+          test -f app/build.gradle.kts
+          test -f app/src/main/AndroidManifest.xml
+          test -f app/src/main/java/br/com/ritmo/nativo/MainActivity.kt
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'Fix Android module paths for RITMO build'
+            git push origin HEAD:main
+          else
+            echo 'Estrutura ja corrigida.'
+          fi
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Instalar SDK Android 35
+        run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Compilar APK
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RITMO-Android-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
